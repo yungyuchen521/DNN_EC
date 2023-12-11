@@ -29,22 +29,19 @@ class GA:
             Individual(**individual_kwargs) for _ in range(pop_sz)
         ]
 
-        self.X = X
-        self.y_true = y
-
         self.offspr_sz: int = offspr_sz
         self.recomb_prob: float = recomb_prob
         self.mutate_prob: float = mutate_prob
 
-        self._best_individual = max(self.population, key=lambda x: self._evaluate(x))
+        self.X = X
+        self.y_true = y
 
-    @property
-    def best_individual(self) -> Individual:
-        return self._best_individual
+        self.best_individual: Individual
+        self._update_best_individual()
 
     @property
     def best_fitness(self) -> float:
-        return self._evaluate(self._best_individual)
+        return self._evaluate(self.best_individual)
 
     def run(self, max_iter: int, goal: float) -> Individual:
         for i in range(max_iter):
@@ -55,7 +52,10 @@ class GA:
             if self.best_fitness >= goal:
                 break
 
-        return self._best_individual
+        return self.best_individual
+
+    def _update_best_individual(self):
+        self.best_individual = max(self.population, key=lambda x: self._evaluate(x))
 
     def _evolve(self):
         offspr_lst = []
@@ -76,6 +76,7 @@ class GA:
                 ind.mutate()
 
         self.population += offspr_lst
+        self._update_best_individual()
 
     def _select(self) -> Individual:
         tournament_size = 2
