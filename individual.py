@@ -83,6 +83,10 @@ class Individual:
         for fc in self.layers:
             fc.mutate()
 
+        # need reevaluation 
+        self.acc = None
+        self.loss = None
+
     def recombine(self, other) -> tuple:
         assert isinstance(other, Individual)
         assert len(self.layers) == len(other.layers)
