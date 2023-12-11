@@ -3,7 +3,7 @@ import gc
 
 from sklearn.metrics import accuracy_score
 
-from individual import Individual
+from .individual import Individual
 
 
 class GA:

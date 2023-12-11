@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from fc import FC
+from .fc import FC
 
 
 class Individual:
