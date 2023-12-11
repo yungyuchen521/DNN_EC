@@ -47,6 +47,7 @@ class GA:
         for i in range(max_iter):
             print(f"===== Iteration {i+1} =====", end=" ")
             self._evolve()
+            assert len(self.population) == self.pop_sz
             print(f"Best fitness = {self.best_fitness}")
 
             if self.best_fitness >= goal:
@@ -87,14 +88,14 @@ class GA:
         key = lambda x: x.age
         self.population.sort(key=key, reverse=True)
 
-        del self.population[: self.pop_sz]
+        del self.population[: self.offspr_sz]
         gc.collect()
 
     def _eliminate_worst(self):
         key = lambda x: self._evaluate(x)
         self.population.sort(key=key)
 
-        del self.population[: self.pop_sz]
+        del self.population[: self.offspr_sz]
         gc.collect()
 
     def _evaluate(self, ind: Individual) -> float:
