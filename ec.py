@@ -1,32 +1,34 @@
 import random
 import gc
 from copy import deepcopy
+from dataclasses import dataclass
+import time
 
 import numpy as np
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, log_loss
 
-from .individual import BaseIndividual, GaIndividual, EsIndividual
+from .individual import BaseIndividual, GaIndividual, EsIndividual, Performance
+
+
+@dataclass
+class Dataset:
+    X_train: np.ndarray
+    y_train: np.ndarray
+    X_test: np.ndarray
+    y_test: np.ndarray
 
 
 class EC:
-    EVAL_BY_ACC = "acc"
-    EVAL_BY_LOSS = "loss"
-
-    def __init__(self, pop_sz: int, offspr_sz: int, X: np.ndarray, y: np.ndarray):
+    def __init__(self, pop_sz: int, offspr_sz: int, dataset: Dataset):
         """
         offspr_sz: number of offsprings to be created per _evolve
-        X: embeddings of images = feature_extractor(imgs)
-        y: labels of images
         """
 
         self.pop_sz: int = pop_sz
-        self.population: list[BaseIndividual]
-
         self.offspr_sz: int = offspr_sz
+        self.dataset: Dataset = dataset
 
-        self.X = X
-        self.y_true = y
-
+        self.population: list[BaseIndividual]
         self.best_individual: BaseIndividual = None
         self._update_best_individual()
 
@@ -34,19 +36,20 @@ class EC:
     def best_fitness(self) -> float:
         return self._evaluate(self.best_individual)
 
-    def run(self, max_iter: int, goal: float, report_period: int = 100) -> list[float]:
+    def run(self, max_iter: int, target_acc: float, report_period: int = 100) -> list:
+        start_time = time.time()
         history = []
 
         for i in range(max_iter):
             self._evolve()
             assert len(self.population) == self.pop_sz
             self._update_best_individual()
-            history.append(self.best_fitness)
+            history.append((time.time()-start_time, self.best_individual.performance))
 
             if (i + 1) % report_period == 0:
-                print(f"===== Iteration {i+1} ===== Best fitness = {self.best_fitness}")
+                print(f"===== Iteration {i+1} ===== Best Individual: {self.best_individual.performance}")
 
-            if self.best_fitness >= goal:
+            if self.best_individual.performance.train_acc >= target_acc:
                 break
 
         return history
@@ -64,22 +67,41 @@ class EC:
         key = lambda x: x.age
         self.population.sort(key=key, reverse=True)
 
-        del self.population[: n]
+        del self.population[:n]
         gc.collect()
 
     def _eliminate_worst(self, n: int):
         key = lambda x: self._evaluate(x)
         self.population.sort(key=key)
 
-        del self.population[: n]
+        del self.population[:n]
         gc.collect()
 
     def _evaluate(self, ind: BaseIndividual) -> float:
-        if ind.acc is None:
-            y_pred = [(1 if ind.predict(x) > 0.5 else 0) for x in self.X]
-            ind.set_acc(accuracy_score(self.y_true, y_pred))
+        if ind.performance is None:
+            train_pred = np.array([ind.predict(x) for x in self.dataset.X_train])
+            test_pred = np.array([ind.predict(x) for x in self.dataset.X_test])
 
-        return ind.acc
+            p = Performance(
+                train_loss=self._bce(self.dataset.y_train, train_pred),
+                test_loss=self._bce(self.dataset.y_test, test_pred),
+                train_acc=self._acc(self.dataset.y_train, train_pred),
+                test_acc=self._acc(self.dataset.y_test, test_pred),
+            )
+            ind.set_performance(p)
+
+        return ind.fitness
+
+    @staticmethod
+    def _acc(y_true: np.ndarray, y_hat: np.ndarray) -> float:
+        assert len(y_true.shape) == len(y_hat.shape) == 1
+        y_hat = y_hat > 0.5
+        return accuracy_score(y_true, y_hat)
+
+    @staticmethod
+    def _bce(y_true: np.ndarray, y_hat: np.ndarray) -> float:
+        assert len(y_true.shape) == len(y_hat.shape) == 1
+        return log_loss(y_true, y_hat)
 
 
 class GeneticAlgorithm(EC):
@@ -93,9 +115,10 @@ class GeneticAlgorithm(EC):
         recomb_prob: float,
         mutate_prob: float,
         eliminate_by: str,
-        X: np.ndarray,
-        y: np.ndarray,
-        **ind_kwargs,
+        dataset: Dataset,
+        eval_by: str,
+        dim_list: list[int],
+        **operator_callbacks,
     ):
         """
         ind_kwargs
@@ -111,14 +134,17 @@ class GeneticAlgorithm(EC):
         self.mutate_prob: float = mutate_prob
         self.eliminate_by = eliminate_by
         self.population: list[GaIndividual] = [
-            GaIndividual(**ind_kwargs) for _ in range(pop_sz)
+            GaIndividual(
+                eval_by=eval_by,
+                dim_list=dim_list,
+                **operator_callbacks,
+            ) for _ in range(pop_sz)
         ]
 
         super().__init__(
             pop_sz=pop_sz,
             offspr_sz=offspr_sz,
-            X=X,
-            y=y,
+            dataset=dataset,
         )
 
     def _evolve(self):
@@ -155,7 +181,16 @@ class EvolutionaryStrategy(EC):
     ES_COMMA = "comma"
     ES_PLUS = "plus"
 
-    def __init__(self, pop_sz: int, offspr_sz: int, select_by: str, X, y, **individual_kwargs):
+    def __init__(
+        self,
+        pop_sz: int,
+        offspr_sz: int,
+        select_by: str,
+        dataset: Dataset,
+        eval_by: str,
+        dim_list: list[int],
+        **mutate_kwargs,
+    ):
         """
         individual_kwargs:
             - dim_list,
@@ -169,14 +204,17 @@ class EvolutionaryStrategy(EC):
 
         self.select_by: str = select_by
         self.population: list[EsIndividual] = [
-            EsIndividual(**individual_kwargs) for _ in range(pop_sz)
+            EsIndividual(
+                eval_by=eval_by,
+                dim_list=dim_list,
+                **mutate_kwargs,
+            ) for _ in range(pop_sz)
         ]
 
         super().__init__(
             pop_sz=pop_sz,
             offspr_sz=offspr_sz,
-            X=X,
-            y=y,
+            dataset=dataset,
         )
 
     def _evolve(self):

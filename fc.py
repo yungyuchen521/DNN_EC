@@ -94,7 +94,7 @@ class GaFc(BaseFc):
         )
 
     @property
-    def config(self) -> dict:
+    def call_back_config(self) -> dict:
         return {
             "wgts_crossover_callback": self.wgts_crossover_callback,
             "wgts_mutate_callback": self.wgts_mutate_callback,
@@ -126,8 +126,8 @@ class GaFc(BaseFc):
         wgts1, wgts2 = self.wgts_crossover_callback(self.wgts, other.wgts)
         bias1, bias2 = self.bias_crossover_callback(self.bias, other.bias)
 
-        child1 = GaFc(wgts1, bias1, self.activation, **self.config)
-        child2 = GaFc(wgts2, bias2, self.activation, **self.config)
+        child1 = GaFc(wgts1, bias1, self.activation, **self.call_back_config)
+        child2 = GaFc(wgts2, bias2, self.activation, **self.call_back_config)
 
         return child1, child2
 
