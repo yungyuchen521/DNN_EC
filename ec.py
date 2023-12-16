@@ -1,8 +1,10 @@
+from typing import Callable
 import random
 import gc
 from copy import deepcopy
 from dataclasses import dataclass
 import time
+import os
 
 import numpy as np
 from sklearn.metrics import accuracy_score, log_loss
@@ -36,15 +38,20 @@ class EC:
     def best_fitness(self) -> float:
         return self._evaluate(self.best_individual)
 
-    def run(self, max_iter: int, target_acc: float, report_period: int = 100) -> list:
+    def run(self, max_iter: int, target_acc: float, save_history_to: str, report_period: int = 10) -> BaseIndividual:
+        assert not os.path.exists(save_history_to)
+
         start_time = time.time()
-        history = []
 
         for i in range(max_iter):
             self._evolve()
             assert len(self.population) == self.pop_sz
             self._update_best_individual()
-            history.append((time.time()-start_time, self.best_individual.performance))
+
+            with open(save_history_to, "a") as f:
+                time_elapsed = time.time() - start_time
+                perf = self.best_individual.performance
+                f.write(f"{time_elapsed}, {perf}\n")
 
             if (i + 1) % report_period == 0:
                 print(f"===== Iteration {i+1} ===== Best Individual: {self.best_individual.performance}")
@@ -52,7 +59,7 @@ class EC:
             if self.best_individual.performance.train_acc >= target_acc:
                 break
 
-        return history
+        return self.best_individual
 
     def _evolve(self):
         raise NotImplementedError
@@ -115,16 +122,13 @@ class GeneticAlgorithm(EC):
         recomb_prob: float,
         mutate_prob: float,
         eliminate_by: str,
+        select_callback: Callable,
+        select_kwargs: dict,
         dataset: Dataset,
         eval_by: str,
         dim_list: list[int],
         **operator_callbacks,
     ):
-        """
-        ind_kwargs
-            - dim_list
-            - ga_operator_callbacks
-        """
         assert pop_sz > offspr_sz
         assert 0 <= recomb_prob <= 1
         assert 0 <= mutate_prob <= 1
@@ -133,6 +137,8 @@ class GeneticAlgorithm(EC):
         self.recomb_prob: float = recomb_prob
         self.mutate_prob: float = mutate_prob
         self.eliminate_by = eliminate_by
+        self.select_callback: Callable = select_callback
+        self.select_kwargs: dict = select_kwargs
         self.population: list[GaIndividual] = [
             GaIndividual(
                 eval_by=eval_by,
@@ -150,8 +156,8 @@ class GeneticAlgorithm(EC):
     def _evolve(self):
         offspr_lst = []
         while len(offspr_lst) < self.offspr_sz:
-            p1 = self._select()
-            p2 = self._select()
+            p1 = self.select_callback(self.population, **self.select_kwargs)
+            p2 = self.select_callback(self.population, **self.select_kwargs)
 
             if random.random() > self.recomb_prob:
                 offspr_lst += [GaIndividual.copy(p1), GaIndividual.copy(p2)]
@@ -171,11 +177,6 @@ class GeneticAlgorithm(EC):
 
         self.population += offspr_lst
 
-    def _select(self) -> GaIndividual:
-        tournament_size = 2
-        tournament_pool = random.sample(self.population, tournament_size)
-        return max(tournament_pool, key=lambda ind: self._evaluate(ind))
-
 
 class EvolutionaryStrategy(EC):
     ES_COMMA = "comma"
@@ -192,8 +193,7 @@ class EvolutionaryStrategy(EC):
         **mutate_kwargs,
     ):
         """
-        individual_kwargs:
-            - dim_list,
+        mutate_kwargs:
             - step_size
             - tau: coordinate-wise learning rate
             - tau_prime: general learning rate
