@@ -4,6 +4,7 @@ import gc
 from copy import deepcopy
 from dataclasses import dataclass
 import time
+import os
 
 import numpy as np
 from sklearn.metrics import accuracy_score, log_loss
@@ -37,15 +38,20 @@ class EC:
     def best_fitness(self) -> float:
         return self._evaluate(self.best_individual)
 
-    def run(self, max_iter: int, target_acc: float, report_period: int = 100) -> list:
+    def run(self, max_iter: int, target_acc: float, save_history_to: str, report_period: int = 10) -> BaseIndividual:
+        assert not os.path.exists(save_history_to)
+
         start_time = time.time()
-        history = []
 
         for i in range(max_iter):
             self._evolve()
             assert len(self.population) == self.pop_sz
             self._update_best_individual()
-            history.append((time.time()-start_time, self.best_individual.performance))
+
+            with open(save_history_to, "a") as f:
+                time_elapsed = time.time() - start_time
+                perf = self.best_individual.performance
+                f.write(f"{time_elapsed}, {perf}\n")
 
             if (i + 1) % report_period == 0:
                 print(f"===== Iteration {i+1} ===== Best Individual: {self.best_individual.performance}")
@@ -53,7 +59,7 @@ class EC:
             if self.best_individual.performance.train_acc >= target_acc:
                 break
 
-        return history
+        return self.best_individual
 
     def _evolve(self):
         raise NotImplementedError
